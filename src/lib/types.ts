@@ -49,3 +49,11 @@ export interface FeedbackComment {
   body: string;
   created_at: string;
 }
+
+export interface WorkspaceInvite {
+  id: string;
+  email: string;
+  role: Exclude<Role, 'owner'>;
+  created_at: string;
+  expires_at: string;
+}

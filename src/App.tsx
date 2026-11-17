@@ -8,6 +8,7 @@ import OnboardingPage from '@/pages/OnboardingPage';
 import AppEntryPage from '@/pages/AppEntryPage';
 import InboxPage from '@/pages/InboxPage';
 import PublicFeedbackPage from '@/pages/PublicFeedbackPage';
+import InvitePage from '@/pages/InvitePage';
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -38,6 +39,11 @@ function AppRouter() {
   const publicFormMatch = pathname.match(/^\/f\/([^/]+)\/?$/);
   if (publicFormMatch) {
     return <PublicFeedbackPage slug={decodeURIComponent(publicFormMatch[1])} />;
+  }
+
+  const inviteMatch = pathname.match(/^\/invite\/([^/]+)\/?$/);
+  if (inviteMatch) {
+    return <InvitePage token={decodeURIComponent(inviteMatch[1])} />;
   }
 
   const inboxMatch = pathname.match(/^\/app\/([^/]+)\/?$/);

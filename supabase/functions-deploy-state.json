@@ -4,6 +4,10 @@
     "ai": {
       "hasChanged": false,
       "hash": "0edc9c2557b76dcb9d552f147d35e6b46adaa201f5dad8697288bf68156ce6c7"
+    },
+    "send-invite": {
+      "hasChanged": false,
+      "hash": "a13b8ec63a6d6f7e9282a09511a334c476e81024ba0bc463b6425a952d661077"
     }
   }
 }

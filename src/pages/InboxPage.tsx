@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Inbox, Link2, MousePointerClick, Sparkles, X } from 'lucide-react';
+import { Inbox, Link2, MousePointerClick, Sparkles, Users, X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { summarizeFeedback } from '@/lib/ai';
 import { deleteFeedback, listFeedback, updateFeedback, type FeedbackPatch } from '@/lib/feedback';
@@ -8,6 +8,7 @@ import { navigate } from '@/lib/router';
 import type { FeedbackItem, FeedbackStatus, Role, TeamMember, Workspace } from '@/lib/types';
 import FeedbackList from '@/components/inbox/FeedbackList';
 import FeedbackDetail from '@/components/inbox/FeedbackDetail';
+import TeamPanel from '@/components/inbox/TeamPanel';
 import { Button, ErrorMessage, Logo, Spinner, ThemeToggle } from '@/components/ui';
 
 type StatusFilter = FeedbackStatus | 'all';
@@ -33,6 +34,7 @@ export default function InboxPage({ slug }: InboxPageProps) {
   const [summary, setSummary] = useState<string | null>(null);
   const [summarizing, setSummarizing] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [showTeam, setShowTeam] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -40,6 +42,7 @@ export default function InboxPage({ slug }: InboxPageProps) {
     setLoadError(null);
     setNotFound(false);
     setSelectedId(null);
+    setShowTeam(false);
     (async () => {
       try {
         const found = await getWorkspaceBySlug(slug);
@@ -180,6 +183,10 @@ export default function InboxPage({ slug }: InboxPageProps) {
           >
             Preview form
           </a>
+          <Button variant="secondary" size="sm" onClick={() => setShowTeam(true)}>
+            <Users className="h-3.5 w-3.5" aria-hidden />
+            <span className="hidden sm:inline">Team</span>
+          </Button>
           <ThemeToggle />
           <button
             type="button"
@@ -238,8 +245,19 @@ export default function InboxPage({ slug }: InboxPageProps) {
           </div>
         </aside>
 
-        <main className={`min-h-0 min-w-0 flex-1 bg-zinc-50 dark:bg-zinc-950 ${selected ? 'flex' : 'hidden lg:flex'}`}>
-          {selected ? (
+        <main className={`min-h-0 min-w-0 flex-1 bg-zinc-50 dark:bg-zinc-950 ${selected || showTeam ? 'flex' : 'hidden lg:flex'}`}>
+          {showTeam ? (
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-white dark:bg-zinc-950">
+              <TeamPanel
+                workspace={workspace}
+                team={team}
+                currentUserId={user.id}
+                role={role}
+                onClose={() => setShowTeam(false)}
+                onTeamChanged={setTeam}
+              />
+            </div>
+          ) : selected ? (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-white dark:bg-zinc-950">
               <FeedbackDetail
                 key={selected.id}

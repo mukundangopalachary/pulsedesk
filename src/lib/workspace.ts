@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import type { PublicWorkspace, Role, TeamMember, Workspace } from '@/lib/types';
+import type { PublicWorkspace, Role, TeamMember, Workspace, WorkspaceInvite } from '@/lib/types';
 
 export async function createWorkspace(name: string, slug: string): Promise<Workspace> {
   const { data, error } = await supabase.rpc('create_workspace', { _name: name, _slug: slug });
@@ -94,4 +94,96 @@ export async function listTeam(workspaceId: string): Promise<TeamMember[]> {
       email: profile?.email ?? '',
     };
   });
+}
+
+export async function listPendingInvites(workspaceId: string): Promise<WorkspaceInvite[]> {
+  const { data, error } = await supabase
+    .from('workspace_invites')
+    .select('id, email, role, created_at, expires_at')
+    .eq('workspace_id', workspaceId)
+    .is('accepted_at', null)
+    .gt('expires_at', new Date().toISOString())
+    .order('created_at', { ascending: false });
+  if (error) {
+    console.error(error);
+    throw new Error('Pending invitations could not be loaded.');
+  }
+  return (data ?? []) as WorkspaceInvite[];
+}
+
+export interface InviteResult {
+  sent: boolean;
+  link: string;
+}
+
+export async function inviteTeammate(workspaceId: string, email: string, role: Role): Promise<InviteResult> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-invite`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${session?.access_token ?? ''}`,
+      Apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+    },
+    body: JSON.stringify({ workspaceId, email: email.trim(), role, origin: window.location.origin }),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload || payload.error) {
+    console.error(payload);
+    throw new Error(
+      typeof payload?.error === 'string' && payload.error
+        ? payload.error
+        : 'The invitation could not be sent. Please try again.',
+    );
+  }
+  return { sent: Boolean(payload.sent), link: String(payload.link ?? '') };
+}
+
+export async function acceptInvite(token: string): Promise<string> {
+  const { data, error } = await supabase.rpc('accept_invite', { _token: token });
+  if (error || !data) {
+    console.error(error);
+    throw new Error(
+      error?.message && !error.message.startsWith('Failed to run')
+        ? error.message
+        : 'This invitation could not be accepted.',
+    );
+  }
+  return data as string;
+}
+
+export async function changeMemberRole(workspaceId: string, memberId: string, role: Role): Promise<void> {
+  const { error } = await supabase.rpc('change_member_role', { _ws: workspaceId, _member: memberId, _role: role });
+  if (error) {
+    console.error(error);
+    throw new Error(
+      error.message && !error.message.startsWith('Failed to run')
+        ? error.message
+        : 'The role could not be changed. Please try again.',
+    );
+  }
+}
+
+export async function removeMember(workspaceId: string, memberId: string): Promise<void> {
+  const { error } = await supabase.rpc('remove_member', { _ws: workspaceId, _member: memberId });
+  if (error) {
+    console.error(error);
+    throw new Error(
+      error.message && !error.message.startsWith('Failed to run')
+        ? error.message
+        : 'That member could not be removed. Please try again.',
+    );
+  }
+}
+
+export async function cancelInvite(inviteId: string): Promise<void> {
+  const { error } = await supabase.rpc('cancel_invite', { _invite_id: inviteId });
+  if (error) {
+    console.error(error);
+    throw new Error(
+      error.message && !error.message.startsWith('Failed to run')
+        ? error.message
+        : 'The invitation could not be cancelled. Please try again.',
+    );
+  }
 }
