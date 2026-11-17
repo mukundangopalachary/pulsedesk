@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { CheckCircle2, SearchX, Star } from 'lucide-react';
+import { classifyFeedback } from '@/lib/ai';
 import { submitFeedback } from '@/lib/feedback';
 import { getPublicWorkspace } from '@/lib/workspace';
 import type { PublicWorkspace } from '@/lib/types';
@@ -59,12 +60,23 @@ export default function PublicFeedbackPage({ slug }: PublicFeedbackPageProps) {
     setSubmitError(null);
     setSubmitting(true);
     try {
+      let category = null;
+      let sentiment = null;
+      try {
+        const ai = await classifyFeedback(message.trim());
+        category = ai.category;
+        sentiment = ai.sentiment;
+      } catch (aiErr) {
+        console.error(aiErr);
+      }
       await submitFeedback({
         workspaceId: workspace.id,
         name: name.trim(),
         email: email.trim(),
         rating,
         message: message.trim(),
+        category,
+        sentiment,
       });
       setSubmitted(true);
     } catch (err) {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Inbox, Link2, MousePointerClick } from 'lucide-react';
+import { Inbox, Link2, MousePointerClick, Sparkles, X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { summarizeFeedback } from '@/lib/ai';
 import { deleteFeedback, listFeedback, updateFeedback, type FeedbackPatch } from '@/lib/feedback';
 import { getMyRole, getWorkspaceBySlug, listTeam } from '@/lib/workspace';
 import { navigate } from '@/lib/router';
@@ -29,6 +30,9 @@ export default function InboxPage({ slug }: InboxPageProps) {
   const [notFound, setNotFound] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [summary, setSummary] = useState<string | null>(null);
+  const [summarizing, setSummarizing] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,6 +107,25 @@ export default function InboxPage({ slug }: InboxPageProps) {
     }
   };
 
+  const runSummary = async () => {
+    setSummarizing(true);
+    setSummaryError(null);
+    setSummary(null);
+    try {
+      const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      const recent = items.filter((item) => new Date(item.created_at).getTime() >= weekAgo);
+      if (recent.length === 0) {
+        setSummary('No feedback has come in during the last 7 days, so there is nothing to summarise yet.');
+        return;
+      }
+      setSummary(await summarizeFeedback(recent));
+    } catch (err) {
+      setSummaryError(err instanceof Error ? err.message : 'The summary could not be generated.');
+    } finally {
+      setSummarizing(false);
+    }
+  };
+
   if (loading) return <Spinner />;
 
   if (notFound || !workspace || !role || !user) {
@@ -141,6 +164,10 @@ export default function InboxPage({ slug }: InboxPageProps) {
           <span className="truncate text-sm font-medium">{workspace.name}</span>
         </div>
         <div className="flex items-center gap-1 sm:gap-2">
+          <Button variant="secondary" size="sm" onClick={runSummary} loading={summarizing} className="hidden sm:inline-flex">
+            {!summarizing && <Sparkles className="h-3.5 w-3.5" aria-hidden />}
+            Summarise this week
+          </Button>
           <Button variant="secondary" size="sm" onClick={copyFormLink} className="hidden sm:inline-flex">
             <Link2 className="h-3.5 w-3.5" aria-hidden />
             {copied ? 'Link copied' : 'Copy feedback link'}
@@ -165,6 +192,29 @@ export default function InboxPage({ slug }: InboxPageProps) {
       </header>
 
       <div className="flex min-h-0 flex-1">
+        {summary !== null && (
+          <div className="absolute inset-x-0 top-14 z-20 mx-4 mt-2 max-w-xl rounded-xl border border-emerald-200 bg-emerald-50 p-4 shadow-lg dark:border-emerald-800 dark:bg-emerald-950">
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="flex items-center gap-1.5 text-sm font-semibold text-emerald-800 dark:text-emerald-200">
+                <Sparkles className="h-4 w-4" aria-hidden />
+                This week at a glance
+              </h2>
+              <button
+                type="button"
+                onClick={() => setSummary(null)}
+                aria-label="Dismiss summary"
+                className="rounded p-0.5 text-emerald-600 hover:bg-emerald-100 dark:text-emerald-300 dark:hover:bg-emerald-900"
+              >
+                <X className="h-4 w-4" aria-hidden />
+              </button>
+            </div>
+            {summaryError ? (
+              <p className="mt-2 text-sm text-rose-700 dark:text-rose-300">{summaryError}</p>
+            ) : (
+              <p className="mt-2 text-sm leading-relaxed text-emerald-900 dark:text-emerald-100">{summary}</p>
+            )}
+          </div>
+        )}
         <aside
           className={`min-h-0 w-full flex-col border-r border-zinc-200 bg-white lg:flex lg:w-[380px] lg:shrink-0 dark:border-zinc-800 dark:bg-zinc-950 ${
             selected ? 'hidden' : 'flex'

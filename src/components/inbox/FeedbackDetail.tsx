@@ -1,5 +1,6 @@
 import { useState, type KeyboardEvent } from 'react';
-import { ArrowLeft, Mail, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Mail, Reply, Trash2, X } from 'lucide-react';
+import { draftReply } from '@/lib/ai';
 import { CATEGORY_LABELS, formatFullDate, SENTIMENT_LABELS, STATUS_META } from '@/lib/format';
 import type { FeedbackItem, FeedbackStatus, Role, TeamMember } from '@/lib/types';
 import type { FeedbackPatch } from '@/lib/feedback';
@@ -37,6 +38,8 @@ export default function FeedbackDetail({
   const [deleting, setDeleting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reply, setReply] = useState<string | null>(null);
+  const [drafting, setDrafting] = useState(false);
 
   const canEdit = role !== 'viewer';
   const canDelete = role === 'owner' || role === 'admin';
@@ -77,6 +80,18 @@ export default function FeedbackDetail({
     if (event.key === 'Enter' || event.key === ',') {
       event.preventDefault();
       addTag();
+    }
+  };
+
+  const handleDraftReply = async () => {
+    setError(null);
+    setDrafting(true);
+    try {
+      setReply(await draftReply(item));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'The draft reply could not be generated.');
+    } finally {
+      setDrafting(false);
     }
   };
 
@@ -125,6 +140,48 @@ export default function FeedbackDetail({
 
             <div className="mt-5 rounded-xl border border-zinc-200 bg-white p-5 text-[15px] leading-relaxed whitespace-pre-wrap text-zinc-800 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200">
               {item.message}
+            </div>
+
+            <div className="mt-4">
+              {reply ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-800 dark:bg-emerald-950/40">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="flex items-center gap-1.5 text-xs font-semibold text-emerald-800 dark:text-emerald-200">
+                      <Reply className="h-3.5 w-3.5" aria-hidden />
+                      Draft reply
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={async () => {
+                          try {
+                            await navigator.clipboard.writeText(reply);
+                          } catch (copyErr) {
+                            console.error(copyErr);
+                          }
+                        }}
+                      >
+                        Copy
+                      </Button>
+                      <button
+                        type="button"
+                        onClick={() => setReply(null)}
+                        aria-label="Dismiss draft reply"
+                        className="rounded p-0.5 text-emerald-600 hover:bg-emerald-100 dark:text-emerald-300 dark:hover:bg-emerald-900"
+                      >
+                        <X className="h-4 w-4" aria-hidden />
+                      </button>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-sm leading-relaxed whitespace-pre-wrap text-emerald-950 dark:text-emerald-100">{reply}</p>
+                </div>
+              ) : (
+                <Button variant="secondary" size="sm" loading={drafting} onClick={handleDraftReply}>
+                  {!drafting && <Reply className="h-3.5 w-3.5" aria-hidden />}
+                  Draft reply
+                </Button>
+              )}
             </div>
 
             {(item.category || item.sentiment) && (

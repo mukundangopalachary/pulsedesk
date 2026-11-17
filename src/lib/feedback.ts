@@ -7,6 +7,8 @@ export interface FeedbackInput {
   email: string;
   rating: number;
   message: string;
+  category?: FeedbackCategory | null;
+  sentiment?: FeedbackSentiment | null;
 }
 
 export interface FeedbackPatch {
@@ -24,6 +26,8 @@ export async function submitFeedback(input: FeedbackInput): Promise<void> {
     email: input.email,
     rating: input.rating,
     message: input.message,
+    category: input.category ?? null,
+    sentiment: input.sentiment ?? null,
   });
   if (error) {
     console.error(error);
