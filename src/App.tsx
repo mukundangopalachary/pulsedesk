@@ -9,6 +9,7 @@ import AppEntryPage from '@/pages/AppEntryPage';
 import InboxPage from '@/pages/InboxPage';
 import PublicFeedbackPage from '@/pages/PublicFeedbackPage';
 import InvitePage from '@/pages/InvitePage';
+import RoadmapPage from '@/pages/RoadmapPage';
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -44,6 +45,11 @@ function AppRouter() {
   const inviteMatch = pathname.match(/^\/invite\/([^/]+)\/?$/);
   if (inviteMatch) {
     return <InvitePage token={decodeURIComponent(inviteMatch[1])} />;
+  }
+
+  const roadmapMatch = pathname.match(/^\/roadmap\/([^/]+)\/?$/);
+  if (roadmapMatch) {
+    return <RoadmapPage slug={decodeURIComponent(roadmapMatch[1])} />;
   }
 
   const inboxMatch = pathname.match(/^\/app\/([^/]+)\/?$/);

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Inbox, Link2, MousePointerClick, Sparkles, Users, X } from 'lucide-react';
+import { BarChart3, Inbox, LayoutGrid, Link2, Slack, Sparkles, Users, X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { summarizeFeedback } from '@/lib/ai';
 import { deleteFeedback, listFeedback, updateFeedback, type FeedbackPatch } from '@/lib/feedback';
@@ -9,6 +9,8 @@ import type { FeedbackItem, FeedbackStatus, Role, TeamMember, Workspace } from '
 import FeedbackList from '@/components/inbox/FeedbackList';
 import FeedbackDetail from '@/components/inbox/FeedbackDetail';
 import TeamPanel from '@/components/inbox/TeamPanel';
+import Dashboard from '@/pages/DashboardPage';
+import SlackSettings from '@/components/inbox/SlackSettings';
 import { Button, ErrorMessage, Logo, Spinner, ThemeToggle } from '@/components/ui';
 
 type StatusFilter = FeedbackStatus | 'all';
@@ -35,6 +37,8 @@ export default function InboxPage({ slug }: InboxPageProps) {
   const [summarizing, setSummarizing] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const [showTeam, setShowTeam] = useState(false);
+  const [showSlack, setShowSlack] = useState(false);
+  const [view, setView] = useState<'inbox' | 'dashboard'>('inbox');
 
   useEffect(() => {
     let cancelled = false;
@@ -43,6 +47,8 @@ export default function InboxPage({ slug }: InboxPageProps) {
     setNotFound(false);
     setSelectedId(null);
     setShowTeam(false);
+    setShowSlack(false);
+    setView('inbox');
     (async () => {
       try {
         const found = await getWorkspaceBySlug(slug);
@@ -176,6 +182,14 @@ export default function InboxPage({ slug }: InboxPageProps) {
             {copied ? 'Link copied' : 'Copy feedback link'}
           </Button>
           <a
+            href={`/roadmap/${slug}`}
+            target="_blank"
+            rel="noreferrer"
+            className="hidden rounded-lg px-3 py-2 text-sm text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-900 md:inline-block dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+          >
+            View roadmap
+          </a>
+          <a
             href={`/f/${slug}`}
             target="_blank"
             rel="noreferrer"
@@ -183,9 +197,29 @@ export default function InboxPage({ slug }: InboxPageProps) {
           >
             Preview form
           </a>
+          <Button variant="secondary" size="sm" onClick={() => { setShowSlack(true); setView('inbox'); }}>
+            <Slack className="h-3.5 w-3.5" aria-hidden />
+            <span className="hidden sm:inline">Slack</span>
+          </Button>
           <Button variant="secondary" size="sm" onClick={() => setShowTeam(true)}>
             <Users className="h-3.5 w-3.5" aria-hidden />
             <span className="hidden sm:inline">Team</span>
+          </Button>
+          <Button
+            variant={view === 'inbox' ? 'secondary' : 'ghost'}
+            size="sm"
+            onClick={() => { setView('inbox'); setShowTeam(false); }}
+          >
+            <Inbox className="h-3.5 w-3.5" aria-hidden />
+            <span className="hidden md:inline">Inbox</span>
+          </Button>
+          <Button
+            variant={view === 'dashboard' ? 'secondary' : 'ghost'}
+            size="sm"
+            onClick={() => { setView('dashboard'); setShowTeam(false); }}
+          >
+            <BarChart3 className="h-3.5 w-3.5" aria-hidden />
+            <span className="hidden md:inline">Dashboard</span>
           </Button>
           <ThemeToggle />
           <button
@@ -224,7 +258,7 @@ export default function InboxPage({ slug }: InboxPageProps) {
         )}
         <aside
           className={`min-h-0 w-full flex-col border-r border-zinc-200 bg-white lg:flex lg:w-[380px] lg:shrink-0 dark:border-zinc-800 dark:bg-zinc-950 ${
-            selected ? 'hidden' : 'flex'
+            view === 'inbox' && !selected ? 'flex' : 'hidden lg:flex'
           }`}
         >
           <div className="flex items-center justify-between px-4 pb-2 pt-4">
@@ -245,8 +279,14 @@ export default function InboxPage({ slug }: InboxPageProps) {
           </div>
         </aside>
 
-        <main className={`min-h-0 min-w-0 flex-1 bg-zinc-50 dark:bg-zinc-950 ${selected || showTeam ? 'flex' : 'hidden lg:flex'}`}>
-          {showTeam ? (
+        <main className={`min-h-0 min-w-0 flex-1 bg-zinc-50 dark:bg-zinc-950 ${selected || showTeam || showSlack || view === 'dashboard' ? 'flex' : 'hidden lg:flex'}`}>
+          {view === 'dashboard' ? (
+            <Dashboard items={items} />
+          ) : showSlack ? (
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-white dark:bg-zinc-950">
+              <SlackSettings workspace={workspace} role={role} onClose={() => setShowSlack(false)} />
+            </div>
+          ) : showTeam ? (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-white dark:bg-zinc-950">
               <TeamPanel
                 workspace={workspace}
@@ -274,7 +314,7 @@ export default function InboxPage({ slug }: InboxPageProps) {
           ) : (
             <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-zinc-400 shadow-sm ring-1 ring-zinc-200 dark:bg-zinc-900 dark:text-zinc-500 dark:ring-zinc-800">
-                <MousePointerClick className="h-5 w-5" aria-hidden />
+                <LayoutGrid className="h-5 w-5" aria-hidden />
               </div>
               <p className="text-sm text-zinc-500 dark:text-zinc-400">Select a piece of feedback to read it and reply to your team.</p>
             </div>

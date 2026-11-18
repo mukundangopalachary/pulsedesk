@@ -26,6 +26,8 @@ export interface TeamMember {
   email: string;
 }
 
+export type RoadmapStatus = 'planned' | 'in_progress' | 'shipped';
+
 export interface FeedbackItem {
   id: string;
   workspace_id: string;
@@ -36,6 +38,8 @@ export interface FeedbackItem {
   status: FeedbackStatus;
   category: FeedbackCategory | null;
   sentiment: FeedbackSentiment | null;
+  roadmap_status: RoadmapStatus | null;
+  screenshot_path: string | null;
   tags: string[];
   assignee_id: string | null;
   created_at: string;
