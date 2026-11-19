@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { callPublicAction } from '@/lib/publicActions';
 import type { FeedbackCategory, FeedbackComment, FeedbackItem, FeedbackSentiment, FeedbackStatus, RoadmapStatus } from '@/lib/types';
 
 export interface FeedbackInput {
@@ -10,6 +11,7 @@ export interface FeedbackInput {
   category?: FeedbackCategory | null;
   sentiment?: FeedbackSentiment | null;
   screenshotPath?: string | null;
+  captchaToken?: string | null;
 }
 
 export interface FeedbackPatch {
@@ -22,24 +24,22 @@ export interface FeedbackPatch {
 const SAVE_ERROR = 'Could not save your changes. Please try again.';
 
 export async function submitFeedback(input: FeedbackInput): Promise<void> {
-  const feedbackId = crypto.randomUUID();
-  // Anonymous submitters have no read-back grant, so we supply our own id.
-  const { error } = await supabase.from('feedback').insert({
-    id: feedbackId,
-    workspace_id: input.workspaceId,
-    name: input.name,
-    email: input.email,
-    rating: input.rating,
-    message: input.message,
-    category: input.category ?? null,
-    sentiment: input.sentiment ?? null,
-    screenshot_path: input.screenshotPath ?? null,
-  });
-  if (error) {
-    console.error(error);
-    throw new Error('Your feedback could not be sent. Please try again.');
-  }
-  notifySlack(input.workspaceId, feedbackId);
+  const { id } = await callPublicAction<{ id: string }>(
+    {
+      action: 'submit_feedback',
+      workspaceId: input.workspaceId,
+      name: input.name,
+      email: input.email,
+      rating: input.rating,
+      message: input.message,
+      category: input.category ?? null,
+      sentiment: input.sentiment ?? null,
+      screenshotPath: input.screenshotPath ?? null,
+      captchaToken: input.captchaToken ?? null,
+    },
+    'Your feedback could not be sent. Please try again.',
+  );
+  notifySlack(input.workspaceId, id);
 }
 
 function notifySlack(workspaceId: string, feedbackId: string): void {
@@ -57,11 +57,13 @@ export async function uploadScreenshot(workspaceId: string, file: File): Promise
   if (file.size > 5 * 1024 * 1024) {
     throw new Error('That image is larger than 5 MB. Try a smaller one.');
   }
-  const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
-  const path = `${workspaceId}/${crypto.randomUUID()}.${ext}`;
+  const { path, token } = await callPublicAction<{ path: string; token: string }>(
+    { action: 'upload_url', workspaceId, contentType: file.type },
+    'Your screenshot could not be uploaded. You can still send your feedback without it.',
+  );
   const { error } = await supabase.storage
     .from('feedback-screenshots')
-    .upload(path, file, { contentType: file.type });
+    .uploadToSignedUrl(path, token, file, { contentType: file.type });
   if (error) {
     console.error(error);
     throw new Error('Your screenshot could not be uploaded. You can still send your feedback without it.');

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
 import { CheckCircle2, ImageUp, SearchX, Star, X } from 'lucide-react';
 import { classifyFeedback } from '@/lib/ai';
+import { Turnstile, TURNSTILE_SITE_KEY } from '@/components/Turnstile';
 import { submitFeedback, uploadScreenshot } from '@/lib/feedback';
 import { getPublicWorkspace } from '@/lib/workspace';
 import type { PublicWorkspace } from '@/lib/types';
@@ -28,6 +29,8 @@ export default function PublicFeedbackPage({ slug }: PublicFeedbackPageProps) {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaReset, setCaptchaReset] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -57,6 +60,10 @@ export default function PublicFeedbackPage({ slug }: PublicFeedbackPageProps) {
     }
     if (!EMAIL_PATTERN.test(email.trim())) {
       setSubmitError('Please enter a valid email address so the team can reply.');
+      return;
+    }
+    if (TURNSTILE_SITE_KEY && !captchaToken) {
+      setSubmitError('Please wait a moment for the security check to finish, then try again.');
       return;
     }
     setSubmitError(null);
@@ -90,12 +97,14 @@ export default function PublicFeedbackPage({ slug }: PublicFeedbackPageProps) {
         category,
         sentiment,
         screenshotPath,
+        captchaToken,
       });
       setSubmitted(true);
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : 'Your feedback could not be sent.');
     } finally {
       setSubmitting(false);
+      setCaptchaReset((n) => n + 1);
     }
   };
 
@@ -250,6 +259,8 @@ export default function PublicFeedbackPage({ slug }: PublicFeedbackPageProps) {
                   </label>
                 )}
               </div>
+
+              <Turnstile onToken={setCaptchaToken} resetSignal={captchaReset} />
 
               <ErrorMessage message={submitError} />
 

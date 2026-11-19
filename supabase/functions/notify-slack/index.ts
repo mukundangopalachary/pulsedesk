@@ -56,12 +56,16 @@ Deno.serve(async (req: Request) => {
     // Load the full row ourselves — the caller only sends the id.
     const { data: row, error: rowError } = await admin
       .from("feedback")
-      .select("id, workspace_id, name, rating, message, category, sentiment")
+      .select("id, workspace_id, name, rating, message, category, sentiment, created_at")
       .eq("id", feedbackId)
       .maybeSingle();
     if (rowError || !row) {
       if (rowError) console.error(rowError);
       return json({ error: "Feedback not found" }, 404);
+    }
+    // Only fresh submissions can trigger a notification (limits replay by anyone holding an old id).
+    if (Date.now() - new Date(row.created_at as string).getTime() > 10 * 60 * 1000) {
+      return json({ skipped: true });
     }
     const workspaceId = row.workspace_id as string;
 

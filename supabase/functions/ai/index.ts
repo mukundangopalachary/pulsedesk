@@ -19,22 +19,36 @@ function corsFor(req: Request): Record<string, string> {
   };
 }
 
-// Best-effort per-isolate rate limiter. It resets when the function cold-starts,
-// so it slows abuse but is not a hard guarantee.
+// Hard limit backed by the database (check_rate_limit). Falls back to a per-isolate
+// counter if the database call fails, so a DB hiccup never opens the endpoint fully.
 const hits = new Map<string, number[]>();
-function rateLimited(key: string, limit: number, windowMs = 60_000): boolean {
+function localLimited(key: string, limit: number, windowMs: number): boolean {
   const now = Date.now();
   const recent = (hits.get(key) ?? []).filter((t) => now - t < windowMs);
-  if (recent.length >= limit) {
-    hits.set(key, recent);
-    return true;
-  }
-  recent.push(now);
+  const blocked = recent.length >= limit;
+  if (!blocked) recent.push(now);
   hits.set(key, recent);
   if (hits.size > 5000) {
     for (const [k, v] of hits) if (v.every((t) => now - t >= windowMs)) hits.delete(k);
   }
-  return false;
+  return blocked;
+}
+
+async function rateLimited(key: string, limit: number, windowSeconds = 60): Promise<boolean> {
+  try {
+    const { createClient } = await import("npm:@supabase/supabase-js@2");
+    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const { data, error } = await admin.rpc("check_rate_limit", {
+      _key: `ai:${key}`,
+      _limit: limit,
+      _window_seconds: windowSeconds,
+    });
+    if (error) throw error;
+    return data !== true;
+  } catch (err) {
+    console.error("rate limit fallback", err);
+    return localLimited(key, limit, windowSeconds * 1000);
+  }
 }
 
 async function getSignedInUserId(req: Request): Promise<string | null> {
@@ -198,13 +212,13 @@ Deno.serve(async (req: Request) => {
     switch (body?.action) {
       case "classify":
         // Public: the feedback form classifies before sign-in exists. Tight per-IP limit.
-        if (rateLimited(`classify:${ip}`, 10)) return errorResponse("Too many requests. Try again shortly.", 429);
+        if (await rateLimited(`classify:${ip}`, 10)) return errorResponse("Too many requests. Try again shortly.", 429);
         return await handleClassify(body, apiKey);
       case "summarize":
       case "draft_reply": {
         const userId = await getSignedInUserId(req);
         if (!userId) return errorResponse("Sign in to use this feature.", 401);
-        if (rateLimited(`user:${userId}`, 30)) return errorResponse("Too many requests. Try again shortly.", 429);
+        if (await rateLimited(`user:${userId}`, 30)) return errorResponse("Too many requests. Try again shortly.", 429);
         return body.action === "summarize"
           ? await handleSummarize(body, apiKey)
           : await handleDraftReply(body, apiKey);

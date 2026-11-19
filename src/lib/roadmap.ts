@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { callPublicAction } from '@/lib/publicActions';
 
 const VOTER_KEY = 'pulsedesk-voter-key';
 
@@ -52,16 +53,14 @@ export async function getPublicRoadmap(slug: string): Promise<{ workspace: Roadm
   return { workspace: workspace as RoadmapWorkspace, entries: ((entries ?? []) as RoadmapEntry[]) };
 }
 
-export async function toggleUpvote(feedbackId: string): Promise<{ upvoted: boolean; upvotes: number }> {
-  const { data, error } = await supabase.rpc('toggle_upvote', {
-    _feedback_id: feedbackId,
-    _voter_key: getVoterKey(),
-  });
-  if (error || !data || data.length === 0) {
-    console.error(error);
-    throw new Error('Your vote could not be counted. Please try again.');
-  }
-  return { upvoted: data[0].upvoted, upvotes: data[0].upvotes };
+export async function toggleUpvote(
+  feedbackId: string,
+  captchaToken: string | null,
+): Promise<{ upvoted: boolean; upvotes: number }> {
+  return callPublicAction<{ upvoted: boolean; upvotes: number }>(
+    { action: 'vote', feedbackId, voterKey: getVoterKey(), captchaToken },
+    'Your vote could not be counted. Please try again.',
+  );
 }
 
 export async function fetchMyUpvotes(feedbackIds: string[]): Promise<Set<string>> {
