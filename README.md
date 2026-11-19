@@ -43,6 +43,14 @@ Deploy with `supabase functions deploy ai notify-slack send-invite public-action
 
 `notify-slack` has to stay callable without a user session (the public form triggers it). It only acts on feedback created in the last 10 minutes, once per item.
 
+## Hosting (static SPA)
+
+Build with `npm run build` and serve `dist/`. The app uses path-based routes, so the host must send every path to `index.html`:
+- Netlify / Cloudflare Pages: `public/_redirects` is included.
+- Vercel: `vercel.json` is included.
+
+Set `VITE_*` variables in the host's build settings, then set `ALLOWED_ORIGINS` and `APP_URL` in Supabase to the deployed URL.
+
 ## Quality checks
 
 ```bash
