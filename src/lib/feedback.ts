@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import type { FeedbackComment, FeedbackItem, FeedbackStatus } from '@/lib/types';
+import type { FeedbackComment, FeedbackItem, FeedbackStatus, RoadmapStatus } from '@/lib/types';
 
 export interface FeedbackInput {
   workspaceId: string;
@@ -9,10 +9,12 @@ export interface FeedbackInput {
   message: string;
   category?: FeedbackCategory | null;
   sentiment?: FeedbackSentiment | null;
+  screenshotPath?: string | null;
 }
 
 export interface FeedbackPatch {
   status?: FeedbackStatus;
+  roadmap_status?: RoadmapStatus | null;
   assignee_id?: string | null;
   tags?: string[];
 }
@@ -20,19 +22,63 @@ export interface FeedbackPatch {
 const SAVE_ERROR = 'Could not save your changes. Please try again.';
 
 export async function submitFeedback(input: FeedbackInput): Promise<void> {
-  const { error } = await supabase.from('feedback').insert({
-    workspace_id: input.workspaceId,
-    name: input.name,
-    email: input.email,
-    rating: input.rating,
-    message: input.message,
-    category: input.category ?? null,
-    sentiment: input.sentiment ?? null,
-  });
-  if (error) {
+  const { data, error } = await supabase
+    .from('feedback')
+    .insert({
+      workspace_id: input.workspaceId,
+      name: input.name,
+      email: input.email,
+      rating: input.rating,
+      message: input.message,
+      category: input.category ?? null,
+      sentiment: input.sentiment ?? null,
+      screenshot_path: input.screenshotPath ?? null,
+    })
+    .select('id')
+    .maybeSingle();
+  if (error || !data) {
     console.error(error);
     throw new Error('Your feedback could not be sent. Please try again.');
   }
+  notifySlack(input.workspaceId, data.id);
+}
+
+function notifySlack(workspaceId: string, feedbackId: string): void {
+  void fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/notify-slack`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Apikey: import.meta.env.VITE_SUPABASE_ANON_KEY },
+    body: JSON.stringify({ record: { id: feedbackId, workspace_id: workspaceId } }),
+  }).catch((err) => console.error(err));
+}
+
+export async function uploadScreenshot(workspaceId: string, file: File): Promise<string> {
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    throw new Error('Screenshots must be a JPG, PNG or WebP image.');
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    throw new Error('That image is larger than 5 MB. Try a smaller one.');
+  }
+  const ext = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
+  const path = `${workspaceId}/${crypto.randomUUID()}.${ext}`;
+  const { error } = await supabase.storage
+    .from('feedback-screenshots')
+    .upload(path, file, { contentType: file.type });
+  if (error) {
+    console.error(error);
+    throw new Error('Your screenshot could not be uploaded. You can still send your feedback without it.');
+  }
+  return path;
+}
+
+export async function getScreenshotUrl(path: string): Promise<string | null> {
+  const { data, error } = await supabase.storage
+    .from('feedback-screenshots')
+    .createSignedUrl(path, 300);
+  if (error || !data) {
+    console.error(error);
+    return null;
+  }
+  return data.signedUrl;
 }
 
 export async function listFeedback(workspaceId: string): Promise<FeedbackItem[]> {

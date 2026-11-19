@@ -1,8 +1,9 @@
-import { useState, type KeyboardEvent } from 'react';
-import { ArrowLeft, Mail, Reply, Trash2, X } from 'lucide-react';
+import { useEffect, useState, type KeyboardEvent } from 'react';
+import { ArrowLeft, Image, Mail, Reply, Trash2, X } from 'lucide-react';
 import { draftReply } from '@/lib/ai';
+import { getScreenshotUrl } from '@/lib/feedback';
 import { CATEGORY_LABELS, formatFullDate, SENTIMENT_LABELS, STATUS_META } from '@/lib/format';
-import type { FeedbackItem, FeedbackStatus, Role, TeamMember } from '@/lib/types';
+import type { FeedbackItem, FeedbackStatus, RoadmapStatus, Role, TeamMember } from '@/lib/types';
 import type { FeedbackPatch } from '@/lib/feedback';
 import { RatingStars, StatusBadge, TagPill } from '@/components/inbox/FeedbackBadges';
 import CommentsSection from '@/components/inbox/CommentsSection';
@@ -11,6 +12,12 @@ import { Button, ErrorMessage, Field } from '@/components/ui';
 const MAX_TAGS = 10;
 const MAX_TAG_LENGTH = 24;
 const STATUSES: FeedbackStatus[] = ['new', 'in_progress', 'resolved'];
+const ROADMAP_OPTIONS: { value: RoadmapStatus | ''; label: string }[] = [
+  { value: '', label: 'Not on roadmap' },
+  { value: 'planned', label: 'Planned' },
+  { value: 'in_progress', label: 'In progress' },
+  { value: 'shipped', label: 'Shipped' },
+];
 
 interface FeedbackDetailProps {
   workspaceId: string;
@@ -40,6 +47,21 @@ export default function FeedbackDetail({
   const [error, setError] = useState<string | null>(null);
   const [reply, setReply] = useState<string | null>(null);
   const [drafting, setDrafting] = useState(false);
+  const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
+  const [screenshotError, setScreenshotError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setScreenshotUrl(null);
+    setScreenshotError(false);
+    if (!item.screenshot_path) return;
+    getScreenshotUrl(item.screenshot_path).then((url) => {
+      if (!cancelled) setScreenshotUrl(url);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [item.screenshot_path]);
 
   const canEdit = role !== 'viewer';
   const canDelete = role === 'owner' || role === 'admin';
@@ -142,6 +164,28 @@ export default function FeedbackDetail({
               {item.message}
             </div>
 
+            {item.screenshot_path && (
+              <div className="mt-4">
+                <span className="mb-2 flex items-center gap-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                  <Image className="h-3.5 w-3.5" aria-hidden />
+                  Attached screenshot
+                </span>
+                {screenshotUrl && !screenshotError && (
+                  <a href={screenshotUrl} target="_blank" rel="noreferrer" className="inline-block">
+                    <img
+                      src={screenshotUrl}
+                      alt="Customer screenshot"
+                      onError={() => setScreenshotError(true)}
+                      className="max-h-64 rounded-lg border border-zinc-200 shadow-sm transition hover:opacity-90 dark:border-zinc-800"
+                    />
+                  </a>
+                )}
+                {(!screenshotUrl || screenshotError) && (
+                  <p className="text-xs text-zinc-400 dark:text-zinc-500">Screenshot could not be displayed{!screenshotUrl ? ' yet' : ''}.</p>
+                )}
+              </div>
+            )}
+
             <div className="mt-4">
               {reply ? (
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-800 dark:bg-emerald-950/40">
@@ -190,35 +234,24 @@ export default function FeedbackDetail({
                 {item.sentiment && <TagPill>{SENTIMENT_LABELS[item.sentiment]}</TagPill>}
               </div>
             )}
+            <Field label="On public roadmap" hint="Items on the roadmap are visible to customers with vote buttons">
+              <select
+                disabled={!canEdit || saving}
+                value={item.roadmap_status ?? ''}
+                onChange={(e) => {
+                  const value = e.target.value as RoadmapStatus | '';
+                  void run(() => onUpdate({ roadmap_status: value === '' ? null : value }));
+                }}
+                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-100"
+              >
+                {ROADMAP_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </Field>
           </section>
 
           <section className="grid gap-6 sm:grid-cols-2">
-            <div>
-              <span className="mb-2 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Status</span>
-              <div className="inline-flex rounded-lg border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-800 dark:bg-zinc-900">
-                {STATUSES.map((status) => {
-                  const active = item.status === status;
-                  return (
-                    <button
-                      key={status}
-                      type="button"
-                      disabled={!canEdit || saving}
-                      onClick={() => changeStatus(status)}
-                      aria-pressed={active}
-                      className={`rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-200 disabled:cursor-not-allowed ${
-                        active
-                          ? 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100'
-                          : 'text-zinc-500 hover:text-zinc-900 disabled:hover:text-zinc-500 dark:text-zinc-400 dark:hover:text-zinc-100'
-                      }`}
-                    >
-                      {active && <span className={`mr-1.5 inline-block h-1.5 w-1.5 rounded-full ${STATUS_META[status].dotClassName}`} aria-hidden />}
-                      {STATUS_META[status].label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
             <Field label="Assignee">
               <select
                 disabled={!canEdit || saving}
@@ -235,6 +268,32 @@ export default function FeedbackDetail({
                 ))}
               </select>
             </Field>
+          </section>
+
+          <section>
+            <span className="mb-2 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Status</span>
+            <div className="inline-flex rounded-lg border border-zinc-200 bg-zinc-100 p-1 dark:border-zinc-800 dark:bg-zinc-900">
+              {STATUSES.map((status) => {
+                const active = item.status === status;
+                return (
+                  <button
+                    key={status}
+                    type="button"
+                    disabled={!canEdit || saving}
+                    onClick={() => changeStatus(status)}
+                    aria-pressed={active}
+                    className={`rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-200 disabled:cursor-not-allowed ${
+                      active
+                        ? 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-zinc-100'
+                        : 'text-zinc-500 hover:text-zinc-900 disabled:hover:text-zinc-500 dark:text-zinc-400 dark:hover:text-zinc-100'
+                    }`}
+                  >
+                    {active && <span className={`mr-1.5 inline-block h-1.5 w-1.5 rounded-full ${STATUS_META[status].dotClassName}`} aria-hidden />}
+                    {STATUS_META[status].label}
+                  </button>
+                );
+              })}
+            </div>
           </section>
 
           <section>

@@ -25,9 +25,9 @@ Deno.serve(async (req: Request) => {
 
     const payload = await req.json();
     const record = payload?.record ?? payload;
-    const workspaceId = typeof record?.workspace_id === "string" ? record.workspace_id : "";
-    if (!workspaceId) {
-      return json({ error: "Missing workspace" }, 400);
+    const feedbackId = typeof record?.id === "string" ? record.id : "";
+    if (!feedbackId) {
+      return json({ error: "Missing feedback id" }, 400);
     }
 
     const { createClient } = await import("npm:@supabase/supabase-js@2");
@@ -35,6 +35,18 @@ Deno.serve(async (req: Request) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+
+    // Load the full row ourselves — the caller only sends the id.
+    const { data: row, error: rowError } = await admin
+      .from("feedback")
+      .select("id, workspace_id, name, rating, message, category, sentiment")
+      .eq("id", feedbackId)
+      .maybeSingle();
+    if (rowError || !row) {
+      if (rowError) console.error(rowError);
+      return json({ error: "Feedback not found" }, 404);
+    }
+    const workspaceId = row.workspace_id as string;
 
     const { data: settings } = await admin
       .from("workspace_settings")
@@ -46,12 +58,24 @@ Deno.serve(async (req: Request) => {
       return json({ skipped: true });
     }
 
-    const rating = Number(record.rating) || 0;
+    const rating = Number(row.rating) || 0;
     const ratingLabel = rating >= 1 && rating <= 5 ? `${rating}/5 (${RATING_LABELS[rating - 1]})` : "unrated";
-    const category = record.category ? ` · ${String(record.category).replace("_", " ")}` : "";
-    const sentiment = record.sentiment ? ` · ${String(record.sentiment)}` : "";
-    const message = String(record.message ?? "").slice(0, 600);
-    const authorName = String(record.name ?? "Anonymous customer");
+    const category = row.category ? ` · ${String(row.category).replace("_", " ")}` : "";
+    const sentiment = row.sentiment ? ` · ${String(row.sentiment)}` : "";
+    const message = String(row.message ?? "").slice(0, 600);
+    const authorName = String(row.name ?? "Anonymous customer");
+
+    // Atomic single-use claim: only one concurrent call wins, so Slack is never spammed.
+    const { data: claimed, error: claimError } = await admin
+      .from("feedback")
+      .update({ slack_notified_at: new Date().toISOString() })
+      .eq("id", feedbackId)
+      .is("slack_notified_at", null)
+      .select("id");
+    if (claimError || !claimed || claimed.length === 0) {
+      if (claimError) console.error(claimError);
+      return json({ skipped: true });
+    }
 
     const response = await fetch(webhookUrl, {
       method: "POST",

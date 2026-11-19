@@ -1,7 +1,7 @@
-import { useEffect, useState, type FormEvent } from 'react';
-import { CheckCircle2, SearchX, Star } from 'lucide-react';
+import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
+import { CheckCircle2, ImageUp, SearchX, Star, X } from 'lucide-react';
 import { classifyFeedback } from '@/lib/ai';
-import { submitFeedback } from '@/lib/feedback';
+import { submitFeedback, uploadScreenshot } from '@/lib/feedback';
 import { getPublicWorkspace } from '@/lib/workspace';
 import type { PublicWorkspace } from '@/lib/types';
 import { Button, ErrorMessage, Field, Input, Logo, Spinner, Textarea, ThemeToggle } from '@/components/ui';
@@ -23,6 +23,8 @@ export default function PublicFeedbackPage({ slug }: PublicFeedbackPageProps) {
   const [rating, setRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
   const [message, setMessage] = useState('');
+  const [screenshot, setScreenshot] = useState<File | null>(null);
+  const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
@@ -69,6 +71,16 @@ export default function PublicFeedbackPage({ slug }: PublicFeedbackPageProps) {
       } catch (aiErr) {
         console.error(aiErr);
       }
+      let screenshotPath = null;
+      if (screenshot) {
+        try {
+          screenshotPath = await uploadScreenshot(workspace.id, screenshot);
+        } catch (uploadErr) {
+          console.error(uploadErr);
+          setSubmitError(uploadErr instanceof Error ? uploadErr.message : null);
+          return;
+        }
+      }
       await submitFeedback({
         workspaceId: workspace.id,
         name: name.trim(),
@@ -77,6 +89,7 @@ export default function PublicFeedbackPage({ slug }: PublicFeedbackPageProps) {
         message: message.trim(),
         category,
         sentiment,
+        screenshotPath,
       });
       setSubmitted(true);
     } catch (err) {
@@ -91,7 +104,22 @@ export default function PublicFeedbackPage({ slug }: PublicFeedbackPageProps) {
     setEmail('');
     setRating(0);
     setMessage('');
+    setScreenshot(null);
+    setScreenshotPreview(null);
     setSubmitted(false);
+  };
+
+  const handleScreenshotChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    if (screenshotPreview) URL.revokeObjectURL(screenshotPreview);
+    setScreenshot(file);
+    setScreenshotPreview(file ? URL.createObjectURL(file) : null);
+  };
+
+  const clearScreenshot = () => {
+    if (screenshotPreview) URL.revokeObjectURL(screenshotPreview);
+    setScreenshot(null);
+    setScreenshotPreview(null);
   };
 
   const shownRating = hoverRating || rating;
@@ -199,6 +227,29 @@ export default function PublicFeedbackPage({ slug }: PublicFeedbackPageProps) {
                   className="resize-y"
                 />
               </Field>
+
+              <div>
+                <span className="mb-2 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Screenshot</span>
+                {screenshotPreview ? (
+                  <div className="relative inline-block">
+                    <img src={screenshotPreview} alt="Screenshot preview" className="max-h-36 rounded-lg border border-zinc-200 dark:border-zinc-800" />
+                    <button
+                      type="button"
+                      onClick={clearScreenshot}
+                      aria-label="Remove screenshot"
+                      className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-zinc-900 text-white shadow-md hover:bg-rose-600"
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden />
+                    </button>
+                  </div>
+                ) : (
+                  <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-zinc-300 px-4 py-3 text-sm text-zinc-500 transition hover:border-emerald-400 hover:text-emerald-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-emerald-500 dark:hover:text-emerald-300">
+                    <ImageUp className="h-4 w-4" aria-hidden />
+                    Attach a screenshot (optional, up to 5 MB)
+                    <input type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={handleScreenshotChange} />
+                  </label>
+                )}
+              </div>
 
               <ErrorMessage message={submitError} />
 
