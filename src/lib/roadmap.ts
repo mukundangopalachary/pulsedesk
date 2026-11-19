@@ -1,3 +1,5 @@
+import { supabase } from '@/lib/supabase';
+
 const VOTER_KEY = 'pulsedesk-voter-key';
 
 export function getVoterKey(): string {
@@ -31,7 +33,6 @@ export interface RoadmapWorkspace {
 }
 
 export async function getPublicRoadmap(slug: string): Promise<{ workspace: RoadmapWorkspace | null; entries: RoadmapEntry[] }> {
-  const { supabase } = await import('@/lib/supabase');
   const { data: workspace, error: wsError } = await supabase
     .from('workspaces')
     .select('id, name, slug')
@@ -52,7 +53,6 @@ export async function getPublicRoadmap(slug: string): Promise<{ workspace: Roadm
 }
 
 export async function toggleUpvote(feedbackId: string): Promise<{ upvoted: boolean; upvotes: number }> {
-  const { supabase } = await import('@/lib/supabase');
   const { data, error } = await supabase.rpc('toggle_upvote', {
     _feedback_id: feedbackId,
     _voter_key: getVoterKey(),
@@ -66,7 +66,6 @@ export async function toggleUpvote(feedbackId: string): Promise<{ upvoted: boole
 
 export async function fetchMyUpvotes(feedbackIds: string[]): Promise<Set<string>> {
   if (feedbackIds.length === 0) return new Set();
-  const { supabase } = await import('@/lib/supabase');
   const { data, error } = await supabase.rpc('get_public_roadmap_votes', {
     _feedback_ids: feedbackIds,
     _voter_key: getVoterKey(),

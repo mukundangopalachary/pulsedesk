@@ -5,6 +5,10 @@
       "hasChanged": false,
       "hash": "0edc9c2557b76dcb9d552f147d35e6b46adaa201f5dad8697288bf68156ce6c7"
     },
+    "notify-slack": {
+      "hasChanged": false,
+      "hash": "595791c9a4769e5c6ab5fb30da00127acf55445961ba3924acb3fe24fd5c51b6"
+    },
     "send-invite": {
       "hasChanged": false,
       "hash": "a13b8ec63a6d6f7e9282a09511a334c476e81024ba0bc463b6425a952d661077"
