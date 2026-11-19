@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Circle, Loader, SearchX, ThumbsUp } from 'lucide-react';
 import { CATEGORY_LABELS, formatRelative } from '@/lib/format';
+import { Turnstile, TURNSTILE_SITE_KEY } from '@/components/Turnstile';
 import { fetchMyUpvotes, getPublicRoadmap, toggleUpvote, type RoadmapEntry } from '@/lib/roadmap';
-import { Button, ErrorMessage, Logo, Spinner, ThemeToggle } from '@/components/ui';
+import { ErrorMessage, Logo, Spinner, ThemeToggle } from '@/components/ui';
 
 const STAGES = ['planned', 'in_progress', 'shipped'] as const;
 
@@ -24,6 +25,8 @@ export default function RoadmapPage({ slug }: RoadmapPageProps) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [voteError, setVoteError] = useState<string | null>(null);
   const [votingId, setVotingId] = useState<string | null>(null);
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaReset, setCaptchaReset] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,7 +75,7 @@ export default function RoadmapPage({ slug }: RoadmapPageProps) {
       ),
     );
     try {
-      const result = await toggleUpvote(entry.id);
+      const result = await toggleUpvote(entry.id, captchaToken);
       setEntries((prev) =>
         prev.map((item) => (item.id === entry.id ? { ...item, upvotes: result.upvotes } : item)),
       );
@@ -91,6 +94,7 @@ export default function RoadmapPage({ slug }: RoadmapPageProps) {
       setVoteError(err instanceof Error ? err.message : 'Your vote could not be counted.');
     } finally {
       setVotingId(null);
+      setCaptchaReset((n) => n + 1);
     }
   };
 
@@ -102,6 +106,7 @@ export default function RoadmapPage({ slug }: RoadmapPageProps) {
       </header>
 
       <main className="flex flex-1 justify-center px-6 pb-20 pt-4">
+        <Turnstile onToken={setCaptchaToken} resetSignal={captchaReset} />
         {loading && <Spinner />}
 
         {!loading && loadError && (
@@ -164,7 +169,7 @@ export default function RoadmapPage({ slug }: RoadmapPageProps) {
                               <button
                                 type="button"
                                 onClick={() => void handleVote(entry)}
-                                disabled={votingId === entry.id}
+                                disabled={votingId === entry.id || (!!TURNSTILE_SITE_KEY && !captchaToken)}
                                 aria-pressed={voted}
                                 aria-label={`${voted ? 'Remove your vote from' : 'Upvote'}: ${entry.message.slice(0, 60)}`}
                                 className={`flex h-fit w-12 shrink-0 flex-col items-center gap-0.5 rounded-lg border py-1.5 transition-all duration-150 active:scale-95 ${

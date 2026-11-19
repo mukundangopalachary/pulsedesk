@@ -1,8 +1,21 @@
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
-};
+// Set ALLOWED_ORIGINS (comma separated) in the function secrets to lock CORS down.
+// Unset = "*" (local development only).
+const allowedOrigins = (Deno.env.get("ALLOWED_ORIGINS") ?? "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+let corsHeaders: Record<string, string> = {};
+function setCors(req: Request) {
+  const origin = req.headers.get("Origin") ?? "";
+  const allow = allowedOrigins.length === 0 ? "*" : allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
+  corsHeaders = {
+    "Access-Control-Allow-Origin": allow,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
+    Vary: "Origin",
+  };
+}
 
 const RATING_LABELS = ["very poor", "poor", "okay", "good", "excellent"];
 
@@ -14,6 +27,7 @@ function json(body: unknown, status = 200) {
 }
 
 Deno.serve(async (req: Request) => {
+  setCors(req);
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
@@ -23,10 +37,13 @@ Deno.serve(async (req: Request) => {
       return json({ error: "Method not allowed" }, 405);
     }
 
+    if (!(req.headers.get("content-type") ?? "").includes("application/json")) {
+      return json({ error: "Expected JSON" }, 415);
+    }
     const payload = await req.json();
     const record = payload?.record ?? payload;
     const feedbackId = typeof record?.id === "string" ? record.id : "";
-    if (!feedbackId) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(feedbackId)) {
       return json({ error: "Missing feedback id" }, 400);
     }
 
@@ -39,12 +56,16 @@ Deno.serve(async (req: Request) => {
     // Load the full row ourselves — the caller only sends the id.
     const { data: row, error: rowError } = await admin
       .from("feedback")
-      .select("id, workspace_id, name, rating, message, category, sentiment")
+      .select("id, workspace_id, name, rating, message, category, sentiment, created_at")
       .eq("id", feedbackId)
       .maybeSingle();
     if (rowError || !row) {
       if (rowError) console.error(rowError);
       return json({ error: "Feedback not found" }, 404);
+    }
+    // Only fresh submissions can trigger a notification (limits replay by anyone holding an old id).
+    if (Date.now() - new Date(row.created_at as string).getTime() > 10 * 60 * 1000) {
+      return json({ skipped: true });
     }
     const workspaceId = row.workspace_id as string;
 
@@ -86,6 +107,8 @@ Deno.serve(async (req: Request) => {
     });
     if (!response.ok) {
       console.error(`Slack webhook failed with status ${response.status}`);
+      // Release the claim so a later call can retry instead of losing the notification.
+      await admin.from("feedback").update({ slack_notified_at: null }).eq("id", feedbackId);
       return json({ error: "Slack notification failed" }, 502);
     }
 
