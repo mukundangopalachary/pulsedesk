@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Circle, Loader, SearchX, ThumbsUp } from 'lucide-react';
 import { CATEGORY_LABELS, formatRelative } from '@/lib/format';
 import { fetchMyUpvotes, getPublicRoadmap, toggleUpvote, type RoadmapEntry } from '@/lib/roadmap';
-import { Button, ErrorMessage, Logo, Spinner, ThemeToggle } from '@/components/ui';
+import { ErrorMessage, Logo, Spinner, ThemeToggle } from '@/components/ui';
 
 const STAGES = ['planned', 'in_progress', 'shipped'] as const;
 

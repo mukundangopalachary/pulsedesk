@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import type { FeedbackComment, FeedbackItem, FeedbackStatus, RoadmapStatus } from '@/lib/types';
+import type { FeedbackCategory, FeedbackComment, FeedbackItem, FeedbackSentiment, FeedbackStatus, RoadmapStatus } from '@/lib/types';
 
 export interface FeedbackInput {
   workspaceId: string;

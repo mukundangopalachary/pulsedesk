@@ -1,11 +1,51 @@
 const GEMINI_MODEL = "gemini-flash-latest";
 const GEMINI_ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
-};
+// Set ALLOWED_ORIGINS (comma separated, e.g. "https://app.example.com") in the
+// function secrets to lock CORS down. Unset = "*" (local development only).
+const allowedOrigins = (Deno.env.get("ALLOWED_ORIGINS") ?? "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+function corsFor(req: Request): Record<string, string> {
+  const origin = req.headers.get("Origin") ?? "";
+  const allow = allowedOrigins.length === 0 ? "*" : allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
+  return {
+    "Access-Control-Allow-Origin": allow,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
+    Vary: "Origin",
+  };
+}
+
+// Best-effort per-isolate rate limiter. It resets when the function cold-starts,
+// so it slows abuse but is not a hard guarantee.
+const hits = new Map<string, number[]>();
+function rateLimited(key: string, limit: number, windowMs = 60_000): boolean {
+  const now = Date.now();
+  const recent = (hits.get(key) ?? []).filter((t) => now - t < windowMs);
+  if (recent.length >= limit) {
+    hits.set(key, recent);
+    return true;
+  }
+  recent.push(now);
+  hits.set(key, recent);
+  if (hits.size > 5000) {
+    for (const [k, v] of hits) if (v.every((t) => now - t >= windowMs)) hits.delete(k);
+  }
+  return false;
+}
+
+async function getSignedInUserId(req: Request): Promise<string | null> {
+  const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
+  if (!token) return null;
+  const { createClient } = await import("npm:@supabase/supabase-js@2");
+  const client = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!);
+  const { data, error } = await client.auth.getUser(token);
+  // The anon key is a valid JWT but has no user, so it is rejected here.
+  return error || !data?.user ? null : data.user.id;
+}
 
 const CATEGORIES = ["bug", "feature_request", "pricing", "support", "other"] as const;
 const SENTIMENTS = ["positive", "neutral", "negative"] as const;
@@ -29,15 +69,24 @@ interface DraftBody {
 }
 type AiRequestBody = ClassifyBody | SummarizeBody | DraftBody;
 
+let currentCors: Record<string, string> = {};
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...currentCors, "Content-Type": "application/json" },
   });
 }
 
 function errorResponse(message: string, status = 500) {
   return json({ error: message }, status);
+}
+
+class BadRequest extends Error {}
+
+function str(value: unknown, max: number, field: string): string {
+  if (typeof value !== "string" || !value.trim()) throw new BadRequest(`Missing ${field}.`);
+  return value.slice(0, max);
 }
 
 function extractText(data: unknown): string {
@@ -83,7 +132,7 @@ async function callGemini(apiKey: string, prompt: string): Promise<string> {
 }
 
 function handleClassify(body: ClassifyBody, apiKey: string) {
-  const message = body.message.slice(0, 5000);
+  const message = str(body.message, 5000, "message");
   const prompt = `Classify this customer feedback message.
 
 Message:
@@ -101,9 +150,12 @@ Return JSON: {"category": one of ${JSON.stringify(CATEGORIES)}, "sentiment": one
 }
 
 function handleSummarize(body: SummarizeBody, apiKey: string) {
+  if (!Array.isArray(body.items) || body.items.length === 0) throw new BadRequest("Missing items.");
   const lines = body.items.slice(0, 60).map((item, i) => {
-    const tags = item.tags.length ? ` [tags: ${item.tags.join(", ")}]` : "";
-    return `${i + 1}. (${item.status}, ${item.rating}/5 stars) ${item.name}: ${item.message.slice(0, 400)}${tags}`;
+    const tagList = Array.isArray(item.tags) ? item.tags.slice(0, 10).map((t) => String(t).slice(0, 40)) : [];
+    const tags = tagList.length ? ` [tags: ${tagList.join(", ")}]` : "";
+    const rating = Number(item.rating) || 0;
+    return `${i + 1}. (${String(item.status).slice(0, 20)}, ${rating}/5 stars) ${String(item.name ?? "").slice(0, 120)}: ${String(item.message ?? "").slice(0, 400)}${tags}`;
   });
   const prompt = `Summarize this week's customer feedback for a team lead. Write 3-5 sentences covering the main themes, overall mood, and anything urgent. Plain text only, no markdown formatting.
 
@@ -114,12 +166,13 @@ ${lines.join("\n")}`;
 }
 
 function handleDraftReply(body: DraftBody, apiKey: string) {
-  const message = body.message.slice(0, 3000);
-  const mood =
-    body.rating >= 4 ? "happy" : body.rating >= 3 ? "mixed" : "upset";
-  const prompt = `Draft a short, warm reply (under 120 words) from the PulseDesk support team to this customer. The customer is ${mood} (rated us ${body.rating}/5). Sign off with "— The Team". Plain text only, no markdown.
+  const message = str(body.message, 3000, "message");
+  const customerName = str(body.customerName, 120, "customerName");
+  const rating = Number(body.rating) || 0;
+  const mood = rating >= 4 ? "happy" : rating >= 3 ? "mixed" : "upset";
+  const prompt = `Draft a short, warm reply (under 120 words) from the PulseDesk support team to this customer. The customer is ${mood} (rated us ${rating}/5). Sign off with "— The Team". Plain text only, no markdown.
 
-Customer name: ${body.customerName}
+Customer name: ${customerName}
 Their feedback:
 """${message}"""`;
 
@@ -127,9 +180,11 @@ Their feedback:
 }
 
 Deno.serve(async (req: Request) => {
+  currentCors = corsFor(req);
   if (req.method === "OPTIONS") {
-    return new Response(null, { status: 200, headers: corsHeaders });
+    return new Response(null, { status: 200, headers: currentCors });
   }
+  if (req.method !== "POST") return errorResponse("Method not allowed", 405);
 
   const apiKey = Deno.env.get("GEMINI_API_KEY");
   if (!apiKey) {
@@ -138,19 +193,28 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body = (await req.json()) as AiRequestBody;
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
 
-    switch (body.action) {
+    switch (body?.action) {
       case "classify":
+        // Public: the feedback form classifies before sign-in exists. Tight per-IP limit.
+        if (rateLimited(`classify:${ip}`, 10)) return errorResponse("Too many requests. Try again shortly.", 429);
         return await handleClassify(body, apiKey);
       case "summarize":
-        return await handleSummarize(body, apiKey);
-      case "draft_reply":
-        return await handleDraftReply(body, apiKey);
+      case "draft_reply": {
+        const userId = await getSignedInUserId(req);
+        if (!userId) return errorResponse("Sign in to use this feature.", 401);
+        if (rateLimited(`user:${userId}`, 30)) return errorResponse("Too many requests. Try again shortly.", 429);
+        return body.action === "summarize"
+          ? await handleSummarize(body, apiKey)
+          : await handleDraftReply(body, apiKey);
+      }
       default:
         return errorResponse("Unknown action", 400);
     }
   } catch (err) {
+    if (err instanceof BadRequest) return errorResponse(err.message, 400);
     console.error(err);
-    return errorResponse(err instanceof Error ? err.message : "AI request failed");
+    return errorResponse("AI request failed. Please try again.");
   }
 });

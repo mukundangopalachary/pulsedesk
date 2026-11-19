@@ -5,7 +5,7 @@ import { getScreenshotUrl } from '@/lib/feedback';
 import { CATEGORY_LABELS, formatFullDate, SENTIMENT_LABELS, STATUS_META } from '@/lib/format';
 import type { FeedbackItem, FeedbackStatus, RoadmapStatus, Role, TeamMember } from '@/lib/types';
 import type { FeedbackPatch } from '@/lib/feedback';
-import { RatingStars, StatusBadge, TagPill } from '@/components/inbox/FeedbackBadges';
+import { RatingStars, TagPill } from '@/components/inbox/FeedbackBadges';
 import CommentsSection from '@/components/inbox/CommentsSection';
 import { Button, ErrorMessage, Field } from '@/components/ui';
 

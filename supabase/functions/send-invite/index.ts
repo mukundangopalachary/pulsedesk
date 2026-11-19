@@ -1,10 +1,23 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
-};
+// Set ALLOWED_ORIGINS (comma separated) in the function secrets to lock CORS down.
+// Unset = "*" (local development only).
+const allowedOrigins = (Deno.env.get("ALLOWED_ORIGINS") ?? "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+let corsHeaders: Record<string, string> = {};
+function setCors(req: Request) {
+  const origin = req.headers.get("Origin") ?? "";
+  const allow = allowedOrigins.length === 0 ? "*" : allowedOrigins.includes(origin) ? origin : allowedOrigins[0];
+  corsHeaders = {
+    "Access-Control-Allow-Origin": allow,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
+    Vary: "Origin",
+  };
+}
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -13,7 +26,12 @@ function json(body: unknown, status = 200) {
   });
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+}
+
 Deno.serve(async (req: Request) => {
+  setCors(req);
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
   }
@@ -42,7 +60,10 @@ Deno.serve(async (req: Request) => {
     const workspaceId = typeof body.workspaceId === "string" ? body.workspaceId : "";
     const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
     const role = typeof body.role === "string" ? body.role : "";
-    const origin = typeof body.origin === "string" ? body.origin.replace(/\/+$/, "") : "";
+    // Prefer a server-side APP_URL so a caller cannot make us email links to another site.
+    const clientOrigin = typeof body.origin === "string" ? body.origin.replace(/\/+$/, "") : "";
+    const origin = (Deno.env.get("APP_URL") ?? "").replace(/\/+$/, "") ||
+      (allowedOrigins.includes(clientOrigin) || allowedOrigins.length === 0 ? clientOrigin : "");
     if (!workspaceId || !email || !role) {
       return json({ error: "Choose a teammate email and role first." }, 400);
     }
@@ -87,7 +108,7 @@ Deno.serve(async (req: Request) => {
             from: "PulseDesk <onboarding@resend.dev>",
             to: [email],
             subject: "You're invited to join a workspace on PulseDesk",
-            html: `<p>Hi,</p><p>You have been invited to join a team workspace on <strong>PulseDesk</strong> with the role <strong>${role}</strong>.</p><p><a href="${link}">Accept your invitation</a></p><p>This link expires in 7 days. Accept it while signed in as ${email}.</p>`,
+            html: `<p>Hi,</p><p>You have been invited to join a team workspace on <strong>PulseDesk</strong> with the role <strong>${escapeHtml(role)}</strong>.</p><p><a href="${link}">Accept your invitation</a></p><p>This link expires in 7 days. Accept it while signed in as ${escapeHtml(email)}.</p>`,
           }),
         });
         sent = emailResponse.ok;
@@ -100,6 +121,6 @@ Deno.serve(async (req: Request) => {
     return json({ sent, link });
   } catch (err) {
     console.error(err);
-    return json({ error: err instanceof Error ? err.message : "The invitation could not be sent." }, 500);
+    return json({ error: "The invitation could not be sent." }, 500);
   }
 });
