@@ -22,25 +22,24 @@ export interface FeedbackPatch {
 const SAVE_ERROR = 'Could not save your changes. Please try again.';
 
 export async function submitFeedback(input: FeedbackInput): Promise<void> {
-  const { data, error } = await supabase
-    .from('feedback')
-    .insert({
-      workspace_id: input.workspaceId,
-      name: input.name,
-      email: input.email,
-      rating: input.rating,
-      message: input.message,
-      category: input.category ?? null,
-      sentiment: input.sentiment ?? null,
-      screenshot_path: input.screenshotPath ?? null,
-    })
-    .select('id')
-    .maybeSingle();
-  if (error || !data) {
+  const feedbackId = crypto.randomUUID();
+  // Anonymous submitters have no read-back grant, so we supply our own id.
+  const { error } = await supabase.from('feedback').insert({
+    id: feedbackId,
+    workspace_id: input.workspaceId,
+    name: input.name,
+    email: input.email,
+    rating: input.rating,
+    message: input.message,
+    category: input.category ?? null,
+    sentiment: input.sentiment ?? null,
+    screenshot_path: input.screenshotPath ?? null,
+  });
+  if (error) {
     console.error(error);
     throw new Error('Your feedback could not be sent. Please try again.');
   }
-  notifySlack(input.workspaceId, data.id);
+  notifySlack(input.workspaceId, feedbackId);
 }
 
 function notifySlack(workspaceId: string, feedbackId: string): void {
