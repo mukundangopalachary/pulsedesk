@@ -8,7 +8,9 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.app.json"
+    "typecheck": "tsc --noEmit -p tsconfig.app.json",
+    "hooks:install": "git config core.hooksPath .githooks",
+    "check": "npm run lint && npm run typecheck && npm run build && npm audit --omit=dev --audit-level=high"
   },
   "dependencies": {
     "@sentry/react": "^11.14.0",
