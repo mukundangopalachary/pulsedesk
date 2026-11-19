@@ -6,7 +6,7 @@ Customer feedback inbox: a public feedback form and roadmap per workspace, plus 
 
 ```bash
 npm ci
-cp .env.example .env   # or create .env with the two values below
+# create .env with the two values below
 npm run dev
 ```
 
