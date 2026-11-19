@@ -57,6 +57,14 @@ Set `VITE_*` variables in the host's build settings, then set `ALLOWED_ORIGINS` 
 npm run lint && npm run typecheck && npm run build
 ```
 
+A pre-push git hook runs the same checks locally. Enable it once per clone:
+
+```bash
+npm run hooks:install
+```
+
+After that, `git push` runs lint, typecheck, build and `npm audit` first and aborts if any fail. Skip once with `SKIP_CHECKS=1 git push`. `npm run check` runs the same steps by hand.
+
 CI (`.github/workflows/ci.yml`) runs these plus `npm audit --omit=dev --audit-level=high` on every PR.
 
 ## Production checklist
